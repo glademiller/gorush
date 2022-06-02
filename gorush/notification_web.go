@@ -5,7 +5,7 @@ import (
 	"fmt"
 	"strconv"
 
-	"github.com/jaraxasoftware/gorush/web"
+	"github.com/netscale-technologies/gorush/web"
 )
 
 // InitWebClient use for initialize APNs Client.
@@ -34,10 +34,6 @@ func getWebNotification(req PushNotification, subscription *Subscription) *web.N
 // PushToWeb provide send notification to Web server.
 func PushToWeb(req PushNotification) bool {
 	LogAccess.Debug("Start push notification for Web")
-	var doSync = req.sync
-	if doSync {
-		defer req.WaitDone()
-	}
 
 	var retryCount = 0
 	var maxRetry = PushConf.Web.MaxRetry
@@ -68,12 +64,12 @@ Retry:
 	for _, subscription := range req.Subscriptions {
 		notification := getWebNotification(req, &subscription)
 		response, err := WebClient.Push(notification, apiKey)
+
 		if err != nil {
 			isError = true
 			failureCount++
 			LogPush(FailedPush, subscription.Endpoint, req, err)
-			fmt.Println(err)
-			if doSync {
+			if PushConf.Core.Sync {
 				if response == nil {
 					req.AddLog(getLogPushEntry(FailedPush, subscription.Endpoint, req, err))
 				} else {
@@ -92,7 +88,7 @@ Retry:
 							errorText = match[1]
 						}
 					}*/
-					errorText = strconv.Itoa(response.StatusCode);
+					errorText = strconv.Itoa(response.StatusCode)
 					var errorObj = errors.New(errorText)
 					req.AddLog(getLogPushEntry(FailedPush, subscription.Endpoint, req, errorObj))
 				}

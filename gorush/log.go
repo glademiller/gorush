@@ -7,7 +7,6 @@ import (
 	"os"
 	"strings"
 
-	"github.com/gin-gonic/gin"
 	"github.com/mattn/go-isatty"
 	"github.com/sirupsen/logrus"
 )
@@ -23,17 +22,9 @@ var (
 	reset   = string([]byte{27, 91, 48, 109})
 )
 
-// LogReq is http request log
-type LogReq struct {
-	URI         string `json:"uri"`
-	Method      string `json:"method"`
-	IP          string `json:"ip"`
-	ContentType string `json:"content_type"`
-	Agent       string `json:"agent"`
-}
-
 // LogPushEntry is push response log
 type LogPushEntry struct {
+	ID       string `json:"notif_id,omitempty"`
 	Type     string `json:"type"`
 	Platform string `json:"platform"`
 	Token    string `json:"token"`
@@ -56,14 +47,19 @@ func InitLog() error {
 	LogAccess = logrus.New()
 	LogError = logrus.New()
 
-	LogAccess.Formatter = &logrus.TextFormatter{
-		TimestampFormat: "2006/01/02 - 15:04:05",
-		FullTimestamp:   true,
-	}
+	if !isTerm {
+		LogAccess.SetFormatter(&logrus.JSONFormatter{})
+		LogError.SetFormatter(&logrus.JSONFormatter{})
+	} else {
+		LogAccess.Formatter = &logrus.TextFormatter{
+			TimestampFormat: "2006/01/02 - 15:04:05",
+			FullTimestamp:   true,
+		}
 
-	LogError.Formatter = &logrus.TextFormatter{
-		TimestampFormat: "2006/01/02 - 15:04:05",
-		FullTimestamp:   true,
+		LogError.Formatter = &logrus.TextFormatter{
+			TimestampFormat: "2006/01/02 - 15:04:05",
+			FullTimestamp:   true,
+		}
 	}
 
 	// set logger
@@ -94,7 +90,7 @@ func SetLogOut(log *logrus.Logger, outString string) error {
 	case "stderr":
 		log.Out = os.Stderr
 	default:
-		f, err := os.OpenFile(outString, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0644)
+		f, err := os.OpenFile(outString, os.O_RDWR|os.O_CREATE|os.O_APPEND, 0600)
 
 		if err != nil {
 			return err
@@ -120,44 +116,7 @@ func SetLogLevel(log *logrus.Logger, levelString string) error {
 	return nil
 }
 
-// LogRequest record http request
-func LogRequest(uri string, method string, ip string, contentType string, agent string) {
-	var output string
-	log := &LogReq{
-		URI:         uri,
-		Method:      method,
-		IP:          ip,
-		ContentType: contentType,
-		Agent:       agent,
-	}
-
-	if PushConf.Log.Format == "json" {
-		logJSON, _ := json.Marshal(log)
-
-		output = string(logJSON)
-	} else {
-		var headerColor, resetColor string
-
-		if isTerm {
-			headerColor = magenta
-			resetColor = reset
-		}
-
-		// format is string
-		output = fmt.Sprintf("|%s header %s| %s %s %s %s %s",
-			headerColor, resetColor,
-			log.Method,
-			log.URI,
-			log.IP,
-			log.ContentType,
-			log.Agent,
-		)
-	}
-
-	LogAccess.Info(output)
-}
-
-func colorForPlatform(platform int) string {
+func colorForPlatForm(platform int) string {
 	switch platform {
 	case PlatformIos:
 		return blue
@@ -215,6 +174,7 @@ func getLogPushEntry(status, token string, req PushNotification, errPush error) 
 	}
 
 	return LogPushEntry{
+		ID:       req.ID,
 		Type:     status,
 		Platform: plat,
 		Token:    token,
@@ -228,7 +188,7 @@ func LogPush(status, token string, req PushNotification, errPush error) {
 	var platColor, resetColor, output string
 
 	if isTerm {
-		platColor = colorForPlatform(req.Platform)
+		platColor = colorForPlatForm(req.Platform)
 		resetColor = reset
 	}
 
@@ -272,13 +232,5 @@ func LogPush(status, token string, req PushNotification, errPush error) {
 		LogAccess.Info(output)
 	case FailedPush:
 		LogError.Error(output)
-	}
-}
-
-// LogMiddleware provide gin router handler.
-func LogMiddleware() gin.HandlerFunc {
-	return func(c *gin.Context) {
-		LogRequest(c.Request.URL.Path, c.Request.Method, c.ClientIP(), c.ContentType(), c.GetHeader("User-Agent"))
-		c.Next()
 	}
 }

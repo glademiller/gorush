@@ -4,12 +4,14 @@ import (
 	"errors"
 	"net/http"
 
+	"github.com/netscale-technologies/gorush/storage/badger"
+
 	"github.com/gin-gonic/gin"
-	"github.com/jaraxasoftware/gorush/storage/boltdb"
-	"github.com/jaraxasoftware/gorush/storage/buntdb"
-	"github.com/jaraxasoftware/gorush/storage/leveldb"
-	"github.com/jaraxasoftware/gorush/storage/memory"
-	"github.com/jaraxasoftware/gorush/storage/redis"
+	"github.com/netscale-technologies/gorush/storage/boltdb"
+	"github.com/netscale-technologies/gorush/storage/buntdb"
+	"github.com/netscale-technologies/gorush/storage/leveldb"
+	"github.com/netscale-technologies/gorush/storage/memory"
+	"github.com/netscale-technologies/gorush/storage/redis"
 	"github.com/thoas/stats"
 )
 
@@ -47,7 +49,7 @@ type IosStatus struct {
 
 // InitAppStatus for initialize app status
 func InitAppStatus() error {
-	LogAccess.Debug("Init App Status Engine as ", PushConf.Stat.Engine)
+	LogAccess.Info("Init App Status Engine as ", PushConf.Stat.Engine)
 	switch PushConf.Stat.Engine {
 	case "memory":
 		StatStorage = memory.New()
@@ -59,6 +61,8 @@ func InitAppStatus() error {
 		StatStorage = buntdb.New(PushConf)
 	case "leveldb":
 		StatStorage = leveldb.New(PushConf)
+	case "badger":
+		StatStorage = badger.New(PushConf)
 	default:
 		LogError.Error("storage error: can't find storage driver")
 		return errors.New("can't find storage driver")
@@ -99,6 +103,6 @@ func StatMiddleware() gin.HandlerFunc {
 	return func(c *gin.Context) {
 		beginning, recorder := Stats.Begin(c.Writer)
 		c.Next()
-		Stats.End(beginning, recorder)
+		Stats.End(beginning, stats.WithRecorder(recorder))
 	}
 }

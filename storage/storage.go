@@ -41,4 +41,5 @@ type Storage interface {
 	GetAndroidError() int64
 	GetWebSuccess() int64
 	GetWebError() int64
+	Close() error
 }

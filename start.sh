@@ -2,7 +2,7 @@
 
 #PLATFORM_IP="$( ipconfig getifaddr en0 )"
 DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
-DEPLOY_ACCOUNT="jaraxasoftware"
+DEPLOY_ACCOUNT="netscale-technologies"
 EXECUTABLE="gorush"
 CONTAINER=js-gorush
 PORT=10421

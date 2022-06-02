@@ -1,20 +1,44 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"log"
+	"net"
 	"net/http"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"strconv"
+	"sync"
+	"syscall"
+	"time"
 
-	"github.com/jaraxasoftware/gorush/config"
-	"github.com/jaraxasoftware/gorush/gorush"
-	"github.com/jaraxasoftware/gorush/rpc"
+	"github.com/netscale-technologies/gorush/config"
+	"github.com/netscale-technologies/gorush/gorush"
+	"github.com/netscale-technologies/gorush/rpc"
 
 	"golang.org/x/sync/errgroup"
 )
+
+func withContextFunc(ctx context.Context, f func()) context.Context {
+	ctx, cancel := context.WithCancel(ctx)
+	go func() {
+		c := make(chan os.Signal, 1)
+		signal.Notify(c, syscall.SIGINT, syscall.SIGTERM)
+		defer signal.Stop(c)
+
+		select {
+		case <-ctx.Done():
+		case <-c:
+			cancel()
+			f()
+		}
+	}()
+
+	return ctx
+}
 
 func main() {
 	opts := config.ConfYaml{}
@@ -26,7 +50,6 @@ func main() {
 		topic       string
 		message     string
 		token       string
-		proxy       string
 		title       string
 	)
 
@@ -57,7 +80,7 @@ func main() {
 	flag.BoolVar(&opts.Ios.Enabled, "ios", false, "send ios notification")
 	flag.BoolVar(&opts.Ios.Production, "production", false, "production mode in iOS")
 	flag.StringVar(&topic, "topic", "", "apns topic in iOS")
-	flag.StringVar(&proxy, "proxy", "", "http proxy url")
+	flag.StringVar(&opts.Core.HTTPProxy, "proxy", "", "http proxy url")
 	flag.BoolVar(&ping, "ping", false, "ping server")
 
 	flag.Usage = usage
@@ -80,6 +103,9 @@ func main() {
 
 		return
 	}
+
+	// Initialize push slots for concurrent iOS pushes
+	gorush.MaxConcurrentIOSPushes = make(chan struct{}, gorush.PushConf.Ios.MaxConcurrentPushes)
 
 	if opts.Ios.KeyPath != "" {
 		gorush.PushConf.Ios.KeyPath = opts.Ios.KeyPath
@@ -111,17 +137,13 @@ func main() {
 
 	if err = gorush.InitLog(); err != nil {
 		log.Fatalf("Can't load log module, error: %v", err)
-		return
 	}
 
-	// set http proxy for GCM
-	if proxy != "" {
-		err = gorush.SetProxy(proxy)
+	if opts.Core.HTTPProxy != "" {
+		gorush.PushConf.Core.HTTPProxy = opts.Core.HTTPProxy
+	}
 
-		if err != nil {
-			gorush.LogError.Fatalf("Set Proxy error: %v", err)
-		}
-	} else if gorush.PushConf.Core.HTTPProxy != "" {
+	if gorush.PushConf.Core.HTTPProxy != "" {
 		err = gorush.SetProxy(gorush.PushConf.Core.HTTPProxy)
 
 		if err != nil {
@@ -226,33 +248,57 @@ func main() {
 	}
 
 	if err = gorush.InitAppStatus(); err != nil {
-		return
+		gorush.LogError.Fatal(err)
 	}
 
-	gorush.InitWorkers(gorush.PushConf.Core.WorkerNum, gorush.PushConf.Core.QueueNum)
+	finished := make(chan struct{})
+	wg := &sync.WaitGroup{}
+	wg.Add(int(gorush.PushConf.Core.WorkerNum))
+	ctx := withContextFunc(context.Background(), func() {
+		gorush.LogAccess.Info("close the notification queue channel, current queue len: ", len(gorush.QueueNotification))
+		close(gorush.QueueNotification)
+		wg.Wait()
+		gorush.LogAccess.Info("the notification queue has been clear")
+		close(finished)
+		// close the connection with storage
+		gorush.LogAccess.Info("close the storage connection: ", gorush.PushConf.Stat.Engine)
+		if err := gorush.StatStorage.Close(); err != nil {
+			gorush.LogError.Fatal("can't close the storage connection: ", err.Error())
+		}
+	})
+
+	gorush.InitWorkers(ctx, wg, gorush.PushConf.Core.WorkerNum, gorush.PushConf.Core.QueueNum)
+
+	if err = gorush.InitAPNSClient(); err != nil {
+		gorush.LogError.Fatal(err)
+	}
+
+	if _, err = gorush.InitFCMClient(gorush.PushConf.Android.APIKey); err != nil {
+		gorush.LogError.Fatal(err)
+	}
 
 	var g errgroup.Group
 
+	// Run httpd server
 	g.Go(func() error {
-		return gorush.InitAPNSClient()
+		return gorush.RunHTTPServer(ctx)
 	})
 
+	// Run gRPC internal server
 	g.Go(func() error {
 		return gorush.InitWebClient()
 	})
 
 	g.Go(func() error {
-		_, err := gorush.InitFCMClient(gorush.PushConf.Android.APIKey)
-		return err
+		return rpc.RunGRPCServer(ctx)
 	})
 
+	// check job completely
 	g.Go(func() error {
-		// Run httpd server
-		return gorush.RunHTTPServer()
-	})
-	g.Go(func() error {
-		// Run gRPC internal server
-		return rpc.RunGRPCServer()
+		select {
+		case <-finished:
+		}
+		return nil
 	})
 
 	if err = g.Wait(); err != nil {
@@ -281,7 +327,7 @@ Server Options:
     -t, --token <token>              Notification token
     -e, --engine <engine>            Storage engine (memory, redis ...)
     --title <title>                  Notification title
-    --proxy <proxy>                  Proxy URL (only for GCM)
+    --proxy <proxy>                  Proxy URL
     --pid <pid path>                 Process identifier path
     --redis-addr <redis addr>        Redis addr (default: localhost:6379)
     --ping                           healthy check command for container
@@ -308,12 +354,22 @@ func usage() {
 // handles pinging the endpoint and returns an error if the
 // agent is in an unhealthy state.
 func pinger() error {
-	resp, err := http.Get("http://localhost:" + gorush.PushConf.Core.Port + gorush.PushConf.API.HealthURI)
+	var transport = &http.Transport{
+		Dial: (&net.Dialer{
+			Timeout: 5 * time.Second,
+		}).Dial,
+		TLSHandshakeTimeout: 5 * time.Second,
+	}
+	var client = &http.Client{
+		Timeout:   time.Second * 10,
+		Transport: transport,
+	}
+	resp, err := client.Get("http://localhost:" + gorush.PushConf.Core.Port + gorush.PushConf.API.HealthURI)
 	if err != nil {
 		return err
 	}
 	defer resp.Body.Close()
-	if resp.StatusCode != 200 {
+	if resp.StatusCode != http.StatusOK {
 		return fmt.Errorf("server returned non-200 status code")
 	}
 	return nil
@@ -338,7 +394,7 @@ func createPIDFile() error {
 		}
 		defer file.Close()
 		if _, err := file.WriteString(strconv.FormatInt(int64(currentPid), 10)); err != nil {
-			return fmt.Errorf("Can'write PID information on %s: %v", pidPath, err)
+			return fmt.Errorf("Can't write PID information on %s: %v", pidPath, err)
 		}
 	} else {
 		return fmt.Errorf("%s already exists", pidPath)

@@ -1,11 +1,13 @@
 package gorush
 
 import (
+	"context"
 	"log"
 	"os"
+	"sync"
 	"testing"
 
-	"github.com/appleboy/gorush/config"
+	"github.com/netscale-technologies/gorush/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -15,7 +17,10 @@ func init() {
 		log.Fatal(err)
 	}
 
-	InitWorkers(PushConf.Core.WorkerNum, PushConf.Core.QueueNum)
+	ctx := context.Background()
+	wg := &sync.WaitGroup{}
+	wg.Add(int(PushConf.Core.WorkerNum))
+	InitWorkers(ctx, wg, PushConf.Core.WorkerNum, PushConf.Core.QueueNum)
 
 	if err := InitAppStatus(); err != nil {
 		log.Fatal(err)

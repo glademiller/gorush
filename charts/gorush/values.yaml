@@ -1,0 +1,74 @@
+# Default values for Go projects.
+# This is a YAML-formatted file.
+# Declare variables to be passed into your templates.
+replicaCount: 1
+image:
+  repository: draft
+  tag: dev
+  pullPolicy: IfNotPresent
+
+# define environment variables here as a map of key: value
+env:
+
+# enable this flag to use knative serve to deploy the app
+knativeDeploy: false
+
+deployAnnotations:
+  wave.pusher.com/update-on-config-change: "true"
+
+service:
+  name: gorush
+  type: ClusterIP
+  externalPort: 8088
+  internalPort: 8088
+  annotations: []
+resources:
+  limits:
+    cpu: 100m
+    memory: 256Mi
+  requests:
+    cpu: 80m
+    memory: 128Mi
+probePath: /
+config_dir: /config/
+certs_dir: /certificates/
+certs_dir_voip: /certificates_voip/
+key: key_file
+livenessProbe:
+  initialDelaySeconds: 60
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 1
+readinessProbe:
+  failureThreshold: 1
+  periodSeconds: 10
+  successThreshold: 1
+  timeoutSeconds: 1
+
+certs:
+  name: gorush-certs
+
+brand:
+  default:
+    ios:
+      password: "Dresd3Ka-uBe!"
+      key_file: "dkv-push.pem"
+      max_concurrent_pushes: 100
+      voip:
+        key_file: "dkv-voip-push.pem"
+    android:
+      api_key: "AAAA4SKa3Qo:APA91bFTRMA4mOpaNcLRfXEDMBRtqUmfHty9R0zBH7wLVygwbxs3fsIMwIqyULRziLyIteF9m0ITbM4x9Cs7Jez18nVplffs65kbwDjwDYNgSl0hjAos79MBh9grIV7CP29XlkHlU5Eb"
+    web:
+      api_key: "AAAA4SKa3Qo:APA91bFTRMA4mOpaNcLRfXEDMBRtqUmfHty9R0zBH7wLVygwbxs3fsIMwIqyULRziLyIteF9m0ITbM4x9Cs7Jez18nVplffs65kbwDjwDYNgSl0hjAos79MBh9grIV7CP29XlkHlU5Eb"
+  qcplus:
+    ios:
+      key_type: "p12"
+      password: "talentomobile"
+      key_file: "dkv-talento-qcplus-preprod-push.p12"
+      production: "true"
+      max_concurrent_pushes: 100
+    android:
+      api_key: "AAAA5SkSuNY:APA91bHz6pSYn4c4VelZ5gcgM3QlVudOpUOdSNDgJvN57wnmlDrihsxoUnowmDYRMDSPoWMweOmfhK9pqoHOMEJDw27ziOqs4VJEj2HIGPynPXlRfKG23soZORkq59bWsh4bsbas5e1G"
+    web:
+      api_key: "AAAAFi_MV1M:APA91bH3vk2pietQemN3UG9AYDph-3ktQVqZGuy_zhPrHKO5o68_TbiwB62Av5vK5w2g0NyNvNYVpoCtygSFGY8uFjg3pNnAzzzSKwSPi-0rhmzRNKwxmJzM08aMWpOGtUOY4VC3gndOumNaoYUDfg5CkaGFuih7AA"
+  

@@ -1,0 +1,86 @@
+{{- if .Values.knativeDeploy }}
+{{- else }}
+{{- range $name, $val := .Values.brand }}
+---
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: "{{ $.Chart.Name }}-{{ $name }}"
+  labels:
+    draft: {{ default "draft-app" $.Values.draft }}
+    chart: "{{ $.Chart.Name }}-{{ $.Chart.Version | replace "+" "_" }}"
+{{- if $.Values.deployAnnotations }}    
+  annotations:      
+{{ toYaml $.Values.deployAnnotations | indent 4 }}
+{{- end }}
+spec:
+  selector:
+    matchLabels:
+      draft: {{ default "draft-app" $.Values.draft }}
+      app: {{ $.Chart.Name }}
+      name: "{{ $.Chart.Name }}-{{ $name }}"
+  replicas: {{ $.Values.replicaCount }}
+  template:
+    metadata:
+      labels:
+        draft: {{ default "draft-app" $.Values.draft }}
+        app: {{ $.Chart.Name }}
+        name: "{{ $.Chart.Name }}-{{ $name }}"
+{{- if $.Values.podAnnotations }}      
+      annotations:   
+{{ toYaml $.Values.podAnnotations | indent 8 }}
+{{- end }}
+    spec:
+      containers:
+      - name: {{ $.Chart.Name }}
+        image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
+        imagePullPolicy: {{ $.Values.image.pullPolicy }}
+        env:
+{{- range $pkey, $pval := $.Values.env }}
+        - name: {{ $pkey }}
+          value: {{ quote $pval }}
+{{- end }}
+        volumeMounts:
+        - name: "{{ $.Chart.Name }}-{{ $name }}"
+          mountPath: {{ $.Values.config_dir }}
+{{- if $val.ios.key_file }}               
+        - name: "{{ $.Values.certs.name }}-{{ $name }}"
+          mountPath: {{ $.Values.certs_dir }}
+          subpath: {{ $val.ios.key_file }}
+{{- end }}           
+{{- if $val.ios.voip }} 
+        - name: "{{ $.Values.certs.name }}-{{ $name }}-voip"
+          mountPath: {{ $.Values.certs_dir }}voip/
+          subpath: {{ $val.ios.voip.key_file }}
+{{- end }}                       
+        ports:
+        - containerPort: {{ $.Values.service.internalPort }}
+        readinessProbe:
+          tcpSocket:
+            port: {{ $.Values.service.internalPort }}
+          initialDelaySeconds: {{ $.Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ $.Values.livenessProbe.periodSeconds }}
+        livenessProbe:
+          tcpSocket:
+            port: {{ $.Values.service.internalPort }}
+          initialDelaySeconds: {{ $.Values.livenessProbe.initialDelaySeconds }}
+          periodSeconds: {{ $.Values.livenessProbe.periodSeconds }}
+        resources:
+{{ toYaml $.Values.resources | indent 12 }}
+      volumes:
+      - name: "{{ $.Chart.Name }}-{{ $name }}"
+        configMap:
+          name: "{{ $.Chart.Name }}-{{ $name }}"
+{{- if $val.ios.key_file }}          
+      - name: "{{ $.Values.certs.name }}-{{ $name }}"
+        secret:
+          secretName: {{ $.Values.certs.name }}-{{ $val.ios.key_file }}
+{{- end }}        
+{{- if $val.ios.voip }}          
+      - name: "{{ $.Values.certs.name }}-{{ $name }}-voip"
+        secret:
+          secretName: {{ $.Values.certs.name }}-{{ $val.ios.voip.key_file }}
+{{- end }}        
+      terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
+{{- end }}
+{{- end }}

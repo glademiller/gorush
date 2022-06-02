@@ -12,13 +12,16 @@ import (
 
 var defaultConf = []byte(`
 core:
-  enabled: true # enabale httpd server
+  enabled: true # enable httpd server
   address: "" # ip address to bind (default: any)
+  shutdown_timeout: 30 # default is 30 second
   port: "8088" # ignore this port number if auto_tls is enabled (listen 443).
   worker_num: 0 # default worker number is runtime.NumCPU()
   queue_num: 0 # default queue number is 8192
   max_notification: 100
   sync: false # set true if you need get error message from fail push notification in API response.
+  feedback_hook_url: "" # set webhook url if you need get error message asynchronously from fail push notification in API response.
+  feedback_timeout: 10 # default is 10 second
   mode: "release"
   ssl: false
   cert_path: "cert.pem"
@@ -37,7 +40,7 @@ core:
     host: "" # which domains the Let's Encrypt will attempt
 
 grpc:
-  enabled: false # enabale gRPC server
+  enabled: false # enable gRPC server
   port: 9000
 
 api:
@@ -56,7 +59,7 @@ android:
 
 ios:
   enabled: false
-  key_path: "key.pem"
+  key_path: ""
   key_base64: "" # load iOS key from base64 input
   key_type: "pem" # could be pem, p12 or p8 type
   password: "" # certificate password, default as empty string.
@@ -67,6 +70,7 @@ ios:
   voip_key_type: "pem" # could be pem, p12 or p8 type
   voip_password: "" # certificate password, default as empty string.
   voip_production: false
+  max_concurrent_pushes: 100 # just for push ios notification
   max_retry: 0 # resend fail notification, default value zero is disabled
   key_id: "" # KeyID from developer account (Certificates, Identifiers & Profiles -> Keys)
   team_id: "" # TeamID from developer account (View Account -> Membership)
@@ -97,6 +101,8 @@ stat:
     path: "bunt.db"
   leveldb:
     path: "level.db"
+  badgerdb:
+    path: "badger.db"
 `)
 
 // ConfYaml is config structure.
@@ -115,6 +121,7 @@ type ConfYaml struct {
 type SectionCore struct {
 	Enabled         bool           `yaml:"enabled"`
 	Address         string         `yaml:"address"`
+	ShutdownTimeout int64          `yaml:"shutdown_timeout"`
 	Port            string         `yaml:"port"`
 	MaxNotification int64          `yaml:"max_notification"`
 	WorkerNum       int64          `yaml:"worker_num"`
@@ -128,6 +135,8 @@ type SectionCore struct {
 	KeyBase64       string         `yaml:"key_base64"`
 	HTTPProxy       string         `yaml:"http_proxy"`
 	CallbackUrl     string         `yaml:"callback_url"`
+	FeedbackURL     string         `yaml:"feedback_hook_url"`
+	FeedbackTimeout int64          `yaml:"feedback_timeout"`
 	PID             SectionPID     `yaml:"pid"`
 	AutoTLS         SectionAutoTLS `yaml:"auto_tls"`
 }
@@ -159,28 +168,37 @@ type SectionAndroid struct {
 
 // SectionIos is sub section of config.
 type SectionIos struct {
-	Enabled        bool   `yaml:"enabled"`
-	KeyPath        string `yaml:"key_path"`
-	KeyBase64      string `yaml:"key_base64"`
-	KeyType        string `yaml:"key_type"`
-	Password       string `yaml:"password"`
-	Production     bool   `yaml:"production"`
-	VoipEnabled    bool   `yaml:"voip_enabled"`
-	VoipKeyPath    string `yaml:"voip_key_path"`
-	VoipKeyBase64  string `yaml:"key_base64"`
-	VoipKeyType    string `yaml:"key_type"`
-	VoipPassword   string `yaml:"voip_password"`
-	VoipProduction bool   `yaml:"voip_production"`
-	MaxRetry       int    `yaml:"max_retry"`
-	KeyID          string `yaml:"key_id"`
-	TeamID         string `yaml:"team_id"`
+	Enabled             bool   `yaml:"enabled"`
+	KeyPath             string `yaml:"key_path"`
+	KeyBase64           string `yaml:"key_base64"`
+	KeyType             string `yaml:"key_type"`
+	Password            string `yaml:"password"`
+	Production          bool   `yaml:"production"`
+	MaxConcurrentPushes uint   `yaml:"max_concurrent_pushes"`
+	VoipEnabled         bool   `yaml:"voip_enabled"`
+	VoipKeyPath         string `yaml:"voip_key_path"`
+	VoipKeyBase64       string `yaml:"key_base64"`
+	VoipKeyType         string `yaml:"key_type"`
+	VoipPassword        string `yaml:"voip_password"`
+	VoipProduction      bool   `yaml:"voip_production"`
+	MaxRetry            int    `yaml:"max_retry"`
+	KeyID               string `yaml:"key_id"`
+	TeamID              string `yaml:"team_id"`
 }
 
 // SectionWeb is sub section of config.
 type SectionWeb struct {
-	Enabled  bool   `yaml:"enabled"`
-	APIKey   string `yaml:"apikey"`
-	MaxRetry int    `yaml:"max_retry"`
+	APIKey              string `yaml:"apikey"`
+	Enabled             bool   `yaml:"enabled"`
+	KeyPath             string `yaml:"key_path"`
+	KeyBase64           string `yaml:"key_base64"`
+	KeyType             string `yaml:"key_type"`
+	Password            string `yaml:"password"`
+	Production          bool   `yaml:"production"`
+	MaxConcurrentPushes uint   `yaml:"max_concurrent_pushes"`
+	MaxRetry            int    `yaml:"max_retry"`
+	KeyID               string `yaml:"key_id"`
+	TeamID              string `yaml:"team_id"`
 }
 
 // SectionLog is sub section of config.
@@ -195,11 +213,12 @@ type SectionLog struct {
 
 // SectionStat is sub section of config.
 type SectionStat struct {
-	Engine  string         `yaml:"engine"`
-	Redis   SectionRedis   `yaml:"redis"`
-	BoltDB  SectionBoltDB  `yaml:"boltdb"`
-	BuntDB  SectionBuntDB  `yaml:"buntdb"`
-	LevelDB SectionLevelDB `yaml:"leveldb"`
+	Engine   string          `yaml:"engine"`
+	Redis    SectionRedis    `yaml:"redis"`
+	BoltDB   SectionBoltDB   `yaml:"boltdb"`
+	BuntDB   SectionBuntDB   `yaml:"buntdb"`
+	LevelDB  SectionLevelDB  `yaml:"leveldb"`
+	BadgerDB SectionBadgerDB `yaml:"badgerdb"`
 }
 
 // SectionRedis is sub section of config.
@@ -222,6 +241,11 @@ type SectionBuntDB struct {
 
 // SectionLevelDB is sub section of config.
 type SectionLevelDB struct {
+	Path string `yaml:"path"`
+}
+
+// SectionBadgerDB is sub section of config.
+type SectionBadgerDB struct {
 	Path string `yaml:"path"`
 }
 
@@ -254,7 +278,9 @@ func LoadConf(confPath string) (ConfYaml, error) {
 			return conf, err
 		}
 
-		viper.ReadConfig(bytes.NewBuffer(content))
+		if err := viper.ReadConfig(bytes.NewBuffer(content)); err != nil {
+			return conf, err
+		}
 	} else {
 		// Search config in home directory with name ".gorush" (without extension).
 		viper.AddConfigPath("/etc/gorush/")
@@ -267,18 +293,23 @@ func LoadConf(confPath string) (ConfYaml, error) {
 			fmt.Println("Using config file:", viper.ConfigFileUsed())
 		} else {
 			// load default config
-			viper.ReadConfig(bytes.NewBuffer(defaultConf))
+			if err := viper.ReadConfig(bytes.NewBuffer(defaultConf)); err != nil {
+				return conf, err
+			}
 		}
 	}
 
 	// Core
 	conf.Core.Address = viper.GetString("core.address")
 	conf.Core.Port = viper.GetString("core.port")
+	conf.Core.ShutdownTimeout = int64(viper.GetInt("core.shutdown_timeout"))
 	conf.Core.Enabled = viper.GetBool("core.enabled")
 	conf.Core.WorkerNum = int64(viper.GetInt("core.worker_num"))
 	conf.Core.QueueNum = int64(viper.GetInt("core.queue_num"))
 	conf.Core.Mode = viper.GetString("core.mode")
 	conf.Core.Sync = viper.GetBool("core.sync")
+	conf.Core.FeedbackURL = viper.GetString("core.feedback_hook_url")
+	conf.Core.FeedbackTimeout = int64(viper.GetInt("core.feedback_timeout"))
 	conf.Core.SSL = viper.GetBool("core.ssl")
 	conf.Core.CertPath = viper.GetString("core.cert_path")
 	conf.Core.KeyPath = viper.GetString("core.key_path")
@@ -321,6 +352,7 @@ func LoadConf(confPath string) (ConfYaml, error) {
 	conf.Ios.VoipKeyType = viper.GetString("ios.voip_key_type")
 	conf.Ios.VoipPassword = viper.GetString("ios.voip_password")
 	conf.Ios.VoipProduction = viper.GetBool("ios.voip_production")
+	conf.Ios.MaxConcurrentPushes = viper.GetUint("ios.max_concurrent_pushes")
 	conf.Ios.MaxRetry = viper.GetInt("ios.max_retry")
 	conf.Ios.KeyID = viper.GetString("ios.key_id")
 	conf.Ios.TeamID = viper.GetString("ios.team_id")
@@ -347,6 +379,7 @@ func LoadConf(confPath string) (ConfYaml, error) {
 	conf.Stat.BoltDB.Bucket = viper.GetString("stat.boltdb.bucket")
 	conf.Stat.BuntDB.Path = viper.GetString("stat.buntdb.path")
 	conf.Stat.LevelDB.Path = viper.GetString("stat.leveldb.path")
+	conf.Stat.BadgerDB.Path = viper.GetString("stat.badgerdb.path")
 
 	// gRPC Server
 	conf.GRPC.Enabled = viper.GetBool("grpc.enabled")

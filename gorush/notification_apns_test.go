@@ -1,14 +1,17 @@
 package gorush
 
 import (
+	"context"
 	"encoding/json"
 	"log"
+	"net/http"
+	"net/url"
 	"os"
 	"testing"
 	"time"
 
 	"github.com/buger/jsonparser"
-	"github.com/jaraxasoftware/gorush/config"
+	"github.com/netscale-technologies/gorush/config"
 	"github.com/sideshow/apns2"
 	"github.com/stretchr/testify/assert"
 )
@@ -55,14 +58,19 @@ func TestIOSNotificationStructure(t *testing.T) {
 	test := "test"
 	expectBadge := 0
 	message := "Welcome notification Server"
+	expiration := int64(time.Now().Unix())
 	req := PushNotification{
-		ApnsID:           test,
-		Topic:            test,
-		Expiration:       time.Now().Unix(),
-		Priority:         "normal",
-		Message:          message,
-		Badge:            &expectBadge,
-		Sound:            test,
+		ApnsID:     test,
+		Topic:      test,
+		Expiration: &expiration,
+		Priority:   "normal",
+		Message:    message,
+		Badge:      &expectBadge,
+		Sound: Sound{
+			Critical: 1,
+			Name:     test,
+			Volume:   1.0,
+		},
 		ContentAvailable: true,
 		Data: D{
 			"key1": "test",
@@ -78,13 +86,14 @@ func TestIOSNotificationStructure(t *testing.T) {
 	data := []byte(string(dump))
 
 	if err := json.Unmarshal(data, &dat); err != nil {
-		log.Println(err)
 		panic(err)
 	}
 
 	alert, _ := jsonparser.GetString(data, "aps", "alert")
 	badge, _ := jsonparser.GetInt(data, "aps", "badge")
-	sound, _ := jsonparser.GetString(data, "aps", "sound")
+	soundName, _ := jsonparser.GetString(data, "aps", "sound", "name")
+	soundCritical, _ := jsonparser.GetInt(data, "aps", "sound", "critical")
+	soundVolume, _ := jsonparser.GetFloat(data, "aps", "sound", "volume")
 	contentAvailable, _ := jsonparser.GetInt(data, "aps", "content-available")
 	category, _ := jsonparser.GetString(data, "aps", "category")
 	key1 := dat["key1"].(interface{})
@@ -99,13 +108,150 @@ func TestIOSNotificationStructure(t *testing.T) {
 	assert.Equal(t, message, alert)
 	assert.Equal(t, expectBadge, int(badge))
 	assert.Equal(t, expectBadge, *req.Badge)
-	assert.Equal(t, test, sound)
+	assert.Equal(t, test, soundName)
+	assert.Equal(t, 1.0, soundVolume)
+	assert.Equal(t, int64(1), soundCritical)
 	assert.Equal(t, 1, int(contentAvailable))
 	assert.Equal(t, "test", key1)
 	assert.Equal(t, 2, int(key2.(float64)))
 	assert.Equal(t, test, category)
 	assert.Contains(t, urlArgs, "a")
 	assert.Contains(t, urlArgs, "b")
+}
+
+func TestIOSSoundAndVolume(t *testing.T) {
+	var dat map[string]interface{}
+
+	test := "test"
+	message := "Welcome notification Server"
+	req := PushNotification{
+		ApnsID:   test,
+		Topic:    test,
+		Priority: "normal",
+		Message:  message,
+		Sound: Sound{
+			Critical: 3,
+			Name:     test,
+			Volume:   4.5,
+		},
+	}
+
+	notification := GetIOSNotification(req)
+
+	dump, _ := json.Marshal(notification.Payload)
+	data := []byte(string(dump))
+
+	if err := json.Unmarshal(data, &dat); err != nil {
+		panic(err)
+	}
+
+	alert, _ := jsonparser.GetString(data, "aps", "alert")
+	soundName, _ := jsonparser.GetString(data, "aps", "sound", "name")
+	soundCritical, _ := jsonparser.GetInt(data, "aps", "sound", "critical")
+	soundVolume, _ := jsonparser.GetFloat(data, "aps", "sound", "volume")
+
+	assert.Equal(t, test, notification.ApnsID)
+	assert.Equal(t, test, notification.Topic)
+	assert.Equal(t, ApnsPriorityLow, notification.Priority)
+	assert.Equal(t, message, alert)
+	assert.Equal(t, test, soundName)
+	assert.Equal(t, 4.5, soundVolume)
+	assert.Equal(t, int64(3), soundCritical)
+
+	req.SoundName = "foobar"
+	req.SoundVolume = 5.5
+	notification = GetIOSNotification(req)
+	dump, _ = json.Marshal(notification.Payload)
+	data = []byte(string(dump))
+
+	if err := json.Unmarshal(data, &dat); err != nil {
+		panic(err)
+	}
+
+	soundName, _ = jsonparser.GetString(data, "aps", "sound", "name")
+	soundVolume, _ = jsonparser.GetFloat(data, "aps", "sound", "volume")
+	soundCritical, _ = jsonparser.GetInt(data, "aps", "sound", "critical")
+	assert.Equal(t, 5.5, soundVolume)
+	assert.Equal(t, int64(1), soundCritical)
+	assert.Equal(t, "foobar", soundName)
+
+	req = PushNotification{
+		ApnsID:   test,
+		Topic:    test,
+		Priority: "normal",
+		Message:  message,
+		Sound: map[string]interface{}{
+			"critical": 3,
+			"name":     "test",
+			"volume":   4.5,
+		},
+	}
+
+	notification = GetIOSNotification(req)
+	dump, _ = json.Marshal(notification.Payload)
+	data = []byte(string(dump))
+
+	if err := json.Unmarshal(data, &dat); err != nil {
+		panic(err)
+	}
+
+	soundName, _ = jsonparser.GetString(data, "aps", "sound", "name")
+	soundVolume, _ = jsonparser.GetFloat(data, "aps", "sound", "volume")
+	soundCritical, _ = jsonparser.GetInt(data, "aps", "sound", "critical")
+	assert.Equal(t, 4.5, soundVolume)
+	assert.Equal(t, int64(3), soundCritical)
+	assert.Equal(t, "test", soundName)
+
+	req = PushNotification{
+		ApnsID:   test,
+		Topic:    test,
+		Priority: "normal",
+		Message:  message,
+		Sound:    "default",
+	}
+
+	notification = GetIOSNotification(req)
+	dump, _ = json.Marshal(notification.Payload)
+	data = []byte(string(dump))
+
+	if err := json.Unmarshal(data, &dat); err != nil {
+		panic(err)
+	}
+
+	soundName, _ = jsonparser.GetString(data, "aps", "sound")
+	assert.Equal(t, "default", soundName)
+}
+
+func TestIOSSummaryArg(t *testing.T) {
+	var dat map[string]interface{}
+
+	test := "test"
+	message := "Welcome notification Server"
+	req := PushNotification{
+		ApnsID:   test,
+		Topic:    test,
+		Priority: "normal",
+		Message:  message,
+		Alert: Alert{
+			SummaryArg:      "test",
+			SummaryArgCount: 3,
+		},
+	}
+
+	notification := GetIOSNotification(req)
+
+	dump, _ := json.Marshal(notification.Payload)
+	data := []byte(string(dump))
+
+	if err := json.Unmarshal(data, &dat); err != nil {
+		panic(err)
+	}
+
+	assert.Equal(t, test, notification.ApnsID)
+	assert.Equal(t, test, notification.Topic)
+	assert.Equal(t, ApnsPriorityLow, notification.Priority)
+	assert.Equal(t, "test", dat["aps"].(map[string]interface{})["alert"].(map[string]interface{})["summary-arg"])
+	assert.Equal(t, float64(3), dat["aps"].(map[string]interface{})["alert"].(map[string]interface{})["summary-arg-count"])
 }
 
 // Silent Notification which payload’s aps dictionary must not contain the alert, sound, or badge keys.
@@ -361,6 +507,7 @@ func TestIOSAlertNotificationStructure(t *testing.T) {
 }
 
 func TestDisabledIosNotifications(t *testing.T) {
+	ctx := context.Background()
 	PushConf, _ = config.LoadConf("")
 
 	PushConf.Ios.Enabled = false
@@ -390,7 +537,7 @@ func TestDisabledIosNotifications(t *testing.T) {
 		},
 	}
 
-	count, logs := queueNotification(req)
+	count, logs := queueNotification(ctx, req)
 	assert.Equal(t, 2, count)
 	assert.Equal(t, 0, len(logs))
 }
@@ -493,8 +640,45 @@ func TestAPNSClientVaildToken(t *testing.T) {
 	assert.Equal(t, apns2.HostProduction, ApnsClient.Host)
 }
 
+func TestAPNSClientUseProxy(t *testing.T) {
+	PushConf, _ = config.LoadConf("")
+
+	PushConf.Ios.Enabled = true
+	PushConf.Ios.KeyPath = "../certificate/certificate-valid.p12"
+	PushConf.Core.HTTPProxy = "http://127.0.0.1:8080"
+	_ = SetProxy(PushConf.Core.HTTPProxy)
+	err := InitAPNSClient()
+	assert.Nil(t, err)
+	assert.Equal(t, apns2.HostDevelopment, ApnsClient.Host)
+
+	req, _ := http.NewRequest("GET", apns2.HostDevelopment, nil)
+	actualProxyURL, err := ApnsClient.HTTPClient.Transport.(*http.Transport).Proxy(req)
+	assert.Nil(t, err)
+
+	expectedProxyURL, _ := url.ParseRequestURI(PushConf.Core.HTTPProxy)
+	assert.Equal(t, expectedProxyURL, actualProxyURL)
+
+	PushConf.Ios.KeyPath = "../certificate/authkey-valid.p8"
+	PushConf.Ios.TeamID = "example.team"
+	PushConf.Ios.KeyID = "example.key"
+	err = InitAPNSClient()
+	assert.Nil(t, err)
+	assert.Equal(t, apns2.HostDevelopment, ApnsClient.Host)
+	assert.NotNil(t, ApnsClient.Token)
+
+	req, _ = http.NewRequest("GET", apns2.HostDevelopment, nil)
+	actualProxyURL, err = ApnsClient.HTTPClient.Transport.(*http.Transport).Proxy(req)
+	assert.Nil(t, err)
+
+	expectedProxyURL, _ = url.ParseRequestURI(PushConf.Core.HTTPProxy)
+	assert.Equal(t, expectedProxyURL, actualProxyURL)
+
+	http.DefaultTransport.(*http.Transport).Proxy = nil
+}
+
 func TestPushToIOS(t *testing.T) {
 	PushConf, _ = config.LoadConf("")
+	MaxConcurrentIOSPushes = make(chan struct{}, PushConf.Ios.MaxConcurrentPushes)
 
 	PushConf.Ios.Enabled = true
 	PushConf.Ios.KeyPath = "../certificate/certificate-valid.pem"

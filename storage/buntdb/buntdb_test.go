@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	c "github.com/jaraxasoftware/gorush/config"
+	c "github.com/netscale-technologies/gorush/config"
 	"github.com/stretchr/testify/assert"
 )
 
@@ -57,4 +57,6 @@ func TestBuntDBEngine(t *testing.T) {
 	buntDB.Reset()
 	val = buntDB.GetAndroidError()
 	assert.Equal(t, int64(0), val)
+
+	assert.NoError(t, buntDB.Close())
 }

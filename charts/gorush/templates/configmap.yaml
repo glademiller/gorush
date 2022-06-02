@@ -1,0 +1,128 @@
+
+{{- if .Values.knativeDeploy }}
+{{- else }}
+{{- range $name, $val := .Values.brand }}
+---
+apiVersion: v1
+kind: ConfigMap
+metadata:
+  name: "{{ $.Chart.Name }}-{{ $name }}"
+  labels:
+    draft: {{ default "draft-app" $.Values.draft }}
+    chart: "{{ $.Chart.Name }}-{{ $.Chart.Version | replace "+" "_" }}"
+data: 
+    config.yml: |-
+        core:
+          enabled: true
+          address: "" 
+          port: "8088"
+          worker_num: 0
+          queue_num: 0
+          max_notification: 100
+          sync: true 
+          mode: "release"
+          ssl: false
+          cert_path: "cert.pem"
+          key_path: "key.pem"
+          http_proxy: ""
+          pid:
+            enabled: false
+            path: "gorush.pid"
+            override: true
+          auto_tls:
+            enabled: false 
+            folder: ".cache"
+            host: ""
+        
+        grpc:
+          enabled: false
+          port: 50051
+        
+        api:
+          push_uri: "/send"
+          stat_go_uri: "/stat/go"
+          stat_app_uri: "/stat/app"
+          config_uri: "/config"
+          sys_stat_uri: "/sys/stats"
+          metric_uri: "/metrics"
+          ping_uri: "/stats/ping"
+          test_uri: "/stats/test"
+          health_uri: "/healthz"
+
+        android:
+          enabled: true
+          apikey: "{{ $val.android.api_key }}"
+          max_retry: 0 
+
+        ios:
+          enabled: true
+{{- if $val.ios.key_file }}          
+          key_path: "{{ $.Values.certs_dir }}{{ $val.ios.key_file }}"
+          password: "{{ $val.ios.password }}"
+          production: "{{ $val.ios.production }}"
+          key_type: "{{ $val.ios.key_type }}"
+          voip_password: "{{ $val.ios.password }}"
+{{- else }}
+          key_base64: "{{ $val.ios.key_base64 }}"
+          key_type: "{{ $val.ios.key_type }}"
+          password: ""
+          key_path: ""
+          production: "{{ $val.ios.production }}"
+          voip_enabled: "{{ $val.ios.voip_enabled }}"
+          voip_key_base64: "{{ $val.ios.key_base64 }}"
+          voip_key_type: "{{ $val.ios.key_type }}"
+          key_id: "{{ $val.ios.key_id }}"
+          team_id: "{{ $val.ios.team_id }}"
+{{- end }}        
+{{- if $val.ios.voip }}          
+          voip_enabled: true
+          voip_key_path: "{{ $.Values.certs_dir }}voip/{{ $val.ios.voip.key_file }}"
+          voip_password: "{{ $val.ios.password }}"
+          voip_production: {{ $val.ios.production }}         
+{{- else }}          
+          voip_enabled: false
+          voip_key_path: ""
+          voip_password: ""
+          voip_production: false
+{{- end }}
+          {{- if $val.ios.max_concurrent_pushes }}
+          max_concurrent_pushes: {{ $val.ios.max_concurrent_pushes }}
+          {{- else }}
+          max_concurrent_pushes: 100
+          {{- end }}
+          max_retry: 0
+
+        web:
+          enabled: true
+          apikey: "{{ $val.web.api_key }}"
+          max_retry: 0
+
+        log:
+          format: "string"
+          access_log: "stdout"
+          {{- if $.Values.logLevel }}
+          access_level: "{{ $.Values.logLevel }}"
+          {{- else }}
+          access_level: "debug"
+          {{- end }}
+          error_log: "stderr" 
+          error_level: "error"
+          hide_token: false
+
+        stat:
+          engine: "memory"
+          redis:
+            addr: "localhost:6379"
+            password: ""
+            db: 0
+          boltdb:
+            path: "bolt.db"
+            bucket: "gorush"
+          buntdb:
+            path: "bunt.db"
+          leveldb:
+            path: "level.db"
+        Events:  <none>
+{{- end }}        
+{{- end }}
+  

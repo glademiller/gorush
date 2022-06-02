@@ -1,17 +1,13 @@
 package redis
 
 import (
-	"log"
 	"strconv"
 
-	"github.com/jaraxasoftware/gorush/config"
-	"github.com/jaraxasoftware/gorush/storage"
+	"github.com/netscale-technologies/gorush/config"
+	"github.com/netscale-technologies/gorush/storage"
 
-	"gopkg.in/redis.v5"
+	"github.com/go-redis/redis/v7"
 )
-
-//
-var redisClient *redis.Client
 
 // New func implements the storage interface for gorush (https://github.com/appleboy/gorush)
 func New(config config.ConfYaml) *Storage {
@@ -20,93 +16,90 @@ func New(config config.ConfYaml) *Storage {
 	}
 }
 
-func getInt64(key string, count *int64) {
-	val, _ := redisClient.Get(key).Result()
+func (s *Storage) getInt64(key string, count *int64) {
+	val, _ := s.client.Get(key).Result()
 	*count, _ = strconv.ParseInt(val, 10, 64)
 }
 
 // Storage is interface structure
 type Storage struct {
 	config config.ConfYaml
+	client *redis.Client
 }
 
 // Init client storage.
 func (s *Storage) Init() error {
-	redisClient = redis.NewClient(&redis.Options{
+	s.client = redis.NewClient(&redis.Options{
 		Addr:     s.config.Stat.Redis.Addr,
 		Password: s.config.Stat.Redis.Password,
 		DB:       s.config.Stat.Redis.DB,
 	})
+	_, err := s.client.Ping().Result()
 
-	_, err := redisClient.Ping().Result()
+	return err
+}
 
-	if err != nil {
-		// redis server error
-		log.Println("Can't connect redis server: " + err.Error())
-
-		return err
+// Close the storage connection
+func (s *Storage) Close() error {
+	if s.client == nil {
+		return nil
 	}
 
-	return nil
+	return s.client.Close()
 }
 
 // Reset Client storage.
 func (s *Storage) Reset() {
-	redisClient.Set(storage.TotalCountKey, strconv.Itoa(0), 0)
-	redisClient.Set(storage.IosSuccessKey, strconv.Itoa(0), 0)
-	redisClient.Set(storage.IosErrorKey, strconv.Itoa(0), 0)
-	redisClient.Set(storage.AndroidSuccessKey, strconv.Itoa(0), 0)
-	redisClient.Set(storage.AndroidErrorKey, strconv.Itoa(0), 0)
-	redisClient.Set(storage.WebSuccessKey, strconv.Itoa(0), 0)
-	redisClient.Set(storage.WebErrorKey, strconv.Itoa(0), 0)
+	s.client.Set(storage.TotalCountKey, int64(0), 0)
+	s.client.Set(storage.IosSuccessKey, int64(0), 0)
+	s.client.Set(storage.IosErrorKey, int64(0), 0)
+	s.client.Set(storage.AndroidSuccessKey, int64(0), 0)
+	s.client.Set(storage.AndroidErrorKey, int64(0), 0)
+	s.client.Set(storage.WebSuccessKey, int64(0), 0)
+	s.client.Set(storage.WebErrorKey, int64(0), 0)
 }
 
 // AddTotalCount record push notification count.
 func (s *Storage) AddTotalCount(count int64) {
-	total := s.GetTotalCount() + count
-	redisClient.Set(storage.TotalCountKey, strconv.Itoa(int(total)), 0)
+	s.client.IncrBy(storage.TotalCountKey, count)
 }
 
 // AddIosSuccess record counts of success iOS push notification.
 func (s *Storage) AddIosSuccess(count int64) {
-	total := s.GetIosSuccess() + count
-	redisClient.Set(storage.IosSuccessKey, strconv.Itoa(int(total)), 0)
+	s.client.IncrBy(storage.IosSuccessKey, count)
 }
 
 // AddIosError record counts of error iOS push notification.
 func (s *Storage) AddIosError(count int64) {
-	total := s.GetIosError() + count
-	redisClient.Set(storage.IosErrorKey, strconv.Itoa(int(total)), 0)
+	s.client.IncrBy(storage.IosErrorKey, count)
 }
 
 // AddAndroidSuccess record counts of success Android push notification.
 func (s *Storage) AddAndroidSuccess(count int64) {
-	total := s.GetAndroidSuccess() + count
-	redisClient.Set(storage.AndroidSuccessKey, strconv.Itoa(int(total)), 0)
+	s.client.IncrBy(storage.AndroidSuccessKey, count)
 }
 
 // AddAndroidError record counts of error Android push notification.
 func (s *Storage) AddAndroidError(count int64) {
-	total := s.GetAndroidError() + count
-	redisClient.Set(storage.AndroidErrorKey, strconv.Itoa(int(total)), 0)
+	s.client.IncrBy(storage.AndroidErrorKey, count)
 }
 
 // AddWebSuccess record counts of success Web push notification.
 func (s *Storage) AddWebSuccess(count int64) {
 	total := s.GetWebSuccess() + count
-	redisClient.Set(storage.WebSuccessKey, strconv.Itoa(int(total)), 0)
+	s.client.Set(storage.WebSuccessKey, strconv.Itoa(int(total)), 0)
 }
 
 // AddWebError record counts of error Web push notification.
 func (s *Storage) AddWebError(count int64) {
 	total := s.GetWebError() + count
-	redisClient.Set(storage.WebErrorKey, strconv.Itoa(int(total)), 0)
+	s.client.Set(storage.WebErrorKey, strconv.Itoa(int(total)), 0)
 }
 
 // GetTotalCount show counts of all notification.
 func (s *Storage) GetTotalCount() int64 {
 	var count int64
-	getInt64(storage.TotalCountKey, &count)
+	s.getInt64(storage.TotalCountKey, &count)
 
 	return count
 }
@@ -114,7 +107,7 @@ func (s *Storage) GetTotalCount() int64 {
 // GetIosSuccess show success counts of iOS notification.
 func (s *Storage) GetIosSuccess() int64 {
 	var count int64
-	getInt64(storage.IosSuccessKey, &count)
+	s.getInt64(storage.IosSuccessKey, &count)
 
 	return count
 }
@@ -122,7 +115,7 @@ func (s *Storage) GetIosSuccess() int64 {
 // GetIosError show error counts of iOS notification.
 func (s *Storage) GetIosError() int64 {
 	var count int64
-	getInt64(storage.IosErrorKey, &count)
+	s.getInt64(storage.IosErrorKey, &count)
 
 	return count
 }
@@ -130,7 +123,7 @@ func (s *Storage) GetIosError() int64 {
 // GetAndroidSuccess show success counts of Android notification.
 func (s *Storage) GetAndroidSuccess() int64 {
 	var count int64
-	getInt64(storage.AndroidSuccessKey, &count)
+	s.getInt64(storage.AndroidSuccessKey, &count)
 
 	return count
 }
@@ -138,7 +131,7 @@ func (s *Storage) GetAndroidSuccess() int64 {
 // GetAndroidError show error counts of Android notification.
 func (s *Storage) GetAndroidError() int64 {
 	var count int64
-	getInt64(storage.AndroidErrorKey, &count)
+	s.getInt64(storage.AndroidErrorKey, &count)
 
 	return count
 }
@@ -146,7 +139,7 @@ func (s *Storage) GetAndroidError() int64 {
 // GetWebSuccess show success counts of Web notification.
 func (s *Storage) GetWebSuccess() int64 {
 	var count int64
-	getInt64(storage.WebSuccessKey, &count)
+	s.getInt64(storage.WebSuccessKey, &count)
 
 	return count
 }
@@ -154,7 +147,7 @@ func (s *Storage) GetWebSuccess() int64 {
 // GetWebError show error counts of Web notification.
 func (s *Storage) GetWebError() int64 {
 	var count int64
-	getInt64(storage.WebErrorKey, &count)
+	s.getInt64(storage.WebErrorKey, &count)
 
 	return count
 }

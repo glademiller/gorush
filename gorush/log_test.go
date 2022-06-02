@@ -3,7 +3,7 @@ package gorush
 import (
 	"testing"
 
-	"github.com/jaraxasoftware/gorush/config"
+	"github.com/netscale-technologies/gorush/config"
 	"github.com/sirupsen/logrus"
 	"github.com/stretchr/testify/assert"
 )
@@ -85,9 +85,9 @@ func TestPlatformType(t *testing.T) {
 }
 
 func TestPlatformColor(t *testing.T) {
-	assert.Equal(t, blue, colorForPlatform(PlatformIos))
-	assert.Equal(t, yellow, colorForPlatform(PlatformAndroid))
-	assert.Equal(t, reset, colorForPlatform(1000000))
+	assert.Equal(t, blue, colorForPlatForm(PlatformIos))
+	assert.Equal(t, yellow, colorForPlatForm(PlatformAndroid))
+	assert.Equal(t, reset, colorForPlatForm(1000000))
 }
 
 func TestHideToken(t *testing.T) {

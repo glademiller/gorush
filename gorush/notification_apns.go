@@ -5,14 +5,29 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"errors"
+	"fmt"
+	"net/http"
 	"path/filepath"
+	"sync"
 	"time"
 
+	"github.com/mitchellh/mapstructure"
 	"github.com/sideshow/apns2"
 	"github.com/sideshow/apns2/certificate"
 	"github.com/sideshow/apns2/payload"
 	"github.com/sideshow/apns2/token"
+	"github.com/sirupsen/logrus"
+	"golang.org/x/net/http2"
 )
+
+var idleConnTimeout = 90 * time.Second
+
+// Sound sets the aps sound on the payload.
+type Sound struct {
+	Critical int     `json:"critical,omitempty"`
+	Name     string  `json:"name,omitempty"`
+	Volume   float32 `json:"volume,omitempty"`
+}
 
 // InitAPNSClient use for initialize APNs Client.
 func InitAPNSClient() error {
@@ -75,17 +90,16 @@ func InitAPNSClient() error {
 				// TeamID from developer account (View Account -> Membership)
 				TeamID: PushConf.Ios.TeamID,
 			}
-			if PushConf.Ios.Production {
-				ApnsClient = apns2.NewTokenClient(token).Production()
-			} else {
-				ApnsClient = apns2.NewTokenClient(token).Development()
-			}
+
+			ApnsClient, err = newApnsTokenClient(token)
 		} else {
-			if PushConf.Ios.Production {
-				ApnsClient = apns2.NewClient(certificateKey).Production()
-			} else {
-				ApnsClient = apns2.NewClient(certificateKey).Development()
-			}
+			ApnsClient, err = newApnsClient(certificateKey)
+		}
+
+		if err != nil {
+			LogError.Error("Transport Error:", err.Error())
+
+			return err
 		}
 	}
 
@@ -165,6 +179,71 @@ func InitAPNSClient() error {
 	return nil
 }
 
+func newApnsClient(certificate tls.Certificate) (*apns2.Client, error) {
+	var client *apns2.Client
+
+	if PushConf.Ios.Production {
+		client = apns2.NewClient(certificate).Production()
+	} else {
+		client = apns2.NewClient(certificate).Development()
+	}
+
+	if PushConf.Core.HTTPProxy == "" {
+		return client, nil
+	}
+
+	tlsConfig := &tls.Config{
+		Certificates: []tls.Certificate{certificate},
+	}
+
+	if len(certificate.Certificate) > 0 {
+		tlsConfig.BuildNameToCertificate()
+	}
+
+	transport := &http.Transport{
+		TLSClientConfig: tlsConfig,
+		Proxy:           http.DefaultTransport.(*http.Transport).Proxy,
+		IdleConnTimeout: idleConnTimeout,
+	}
+
+	transportErr := http2.ConfigureTransport(transport)
+	if transportErr != nil {
+		return nil, transportErr
+	}
+
+	client.HTTPClient.Transport = transport
+
+	return client, nil
+}
+
+func newApnsTokenClient(token *token.Token) (*apns2.Client, error) {
+	var client *apns2.Client
+
+	if PushConf.Ios.Production {
+		client = apns2.NewTokenClient(token).Production()
+	} else {
+		client = apns2.NewTokenClient(token).Development()
+	}
+
+	if PushConf.Core.HTTPProxy == "" {
+		return client, nil
+	}
+
+	transport := &http.Transport{
+		Proxy:           http.DefaultTransport.(*http.Transport).Proxy,
+		IdleConnTimeout: idleConnTimeout,
+	}
+
+	transportErr := http2.ConfigureTransport(transport)
+	if transportErr != nil {
+		return nil, transportErr
+	}
+
+	client.HTTPClient.Transport = transport
+
+	return client, nil
+}
+
 func iosAlertDictionary(payload *payload.Payload, req PushNotification) *payload.Payload {
 	// Alert dictionary
 
@@ -214,9 +293,16 @@ func iosAlertDictionary(payload *payload.Payload, req PushNotification) *payload
 	}
 
 	// General
-
 	if len(req.Category) > 0 {
 		payload.Category(req.Category)
+	}
+
+	if len(req.Alert.SummaryArg) > 0 {
+		payload.AlertSummaryArg(req.Alert.SummaryArg)
+	}
+
+	if req.Alert.SummaryArgCount > 0 {
+		payload.AlertSummaryArgCount(req.Alert.SummaryArgCount)
 	}
 
 	return payload
@@ -232,12 +318,20 @@ func GetIOSNotification(req PushNotification) *apns2.Notification {
 		CollapseID: req.CollapseID,
 	}
 
-	if req.Expiration > 0 {
-		notification.Expiration = time.Unix(req.Expiration, 0)
+	if req.Expiration != nil {
+		notification.Expiration = time.Unix(*req.Expiration, 0)
 	}
 
-	if len(req.Priority) > 0 && req.Priority == "normal" {
-		notification.Priority = apns2.PriorityLow
+	if len(req.Priority) > 0 {
+		if req.Priority == "normal" {
+			notification.Priority = apns2.PriorityLow
+		} else if req.Priority == "high" {
+			notification.Priority = apns2.PriorityHigh
+		}
+	}
+
+	if len(req.PushType) > 0 {
+		notification.PushType = apns2.EPushType(req.PushType)
 	}
 
 	payload := payload.NewPayload()
@@ -256,8 +350,25 @@ func GetIOSNotification(req PushNotification) *apns2.Notification {
 		payload.MutableContent()
 	}
 
-	if len(req.Sound) > 0 {
-		payload.Sound(req.Sound)
+	switch req.Sound.(type) {
+	// from http request binding
+	case map[string]interface{}:
+		result := &Sound{}
+		_ = mapstructure.Decode(req.Sound, &result)
+		payload.Sound(result)
+	// from http request binding for non critical alerts
+	case string:
+		payload.Sound(&req.Sound)
+	case Sound:
+		payload.Sound(&req.Sound)
+	}
+
+	if len(req.SoundName) > 0 {
+		payload.SoundName(req.SoundName)
+	}
+
+	if req.SoundVolume > 0 {
+		payload.SoundVolume(req.SoundVolume)
 	}
 
 	if req.ContentAvailable {
@@ -315,10 +426,6 @@ func getApnsClient(req PushNotification) (client *apns2.Client) {
 // PushToIOS provide send notification to APNs server.
 func PushToIOS(req PushNotification) bool {
 	LogAccess.Debug("Start push notification for iOS")
-	var doSync = req.sync
-	if doSync {
-		defer req.WaitDone()
-	}
 
 	var (
 		retryCount = 0
@@ -336,44 +443,60 @@ Retry:
 	)
 
 	notification := GetIOSNotification(req)
+
 	client := getApnsClient(req)
 
+	var wg sync.WaitGroup
 	for _, token := range req.Tokens {
-		notification.DeviceToken = token
+		// occupy push slot
+		MaxConcurrentIOSPushes <- struct{}{}
+		fmt.Printf("%+v", token)
+		wg.Add(1)
+		go func(token string) {
+			notification.DeviceToken = token
 
-		// send ios notification
-		res, err := client.Push(notification)
+			// send ios notification
+			res, err := client.Push(notification)
 
-		if err != nil {
-			// apns server error
-			LogPush(FailedPush, token, req, err)
-			if doSync {
-				req.AddLog(getLogPushEntry(FailedPush, token, req, err))
+			if err != nil || res.StatusCode != 200 {
+				if err == nil {
+					// error message:
+					// ref: https://github.com/sideshow/apns2/blob/master/response.go#L14-L65
+					err = errors.New(res.Reason)
+				}
+				// apns server error
+				LogPush(FailedPush, token, req, err)
+
+				if PushConf.Core.Sync {
+					req.AddLog(getLogPushEntry(FailedPush, token, req, err))
+				} else if PushConf.Core.FeedbackURL != "" {
+					go func(logger *logrus.Logger, log LogPushEntry, url string, timeout int64) {
+						err := DispatchFeedback(log, url, timeout)
+						if err != nil {
+							logger.Error(err)
+						}
+					}(LogError, getLogPushEntry(FailedPush, token, req, err), PushConf.Core.FeedbackURL, PushConf.Core.FeedbackTimeout)
+				}
+
+				StatStorage.AddIosError(1)
+				// We should retry only "retryable" statuses. More info about response:
+				// https://developer.apple.com/documentation/usernotifications/setting_up_a_remote_notification_server/handling_notification_responses_from_apns
+				if res.StatusCode >= http.StatusInternalServerError {
+					newTokens = append(newTokens, token)
+				}
+				isError = true
 			}
-			StatStorage.AddIosError(1)
-			newTokens = append(newTokens, token)
-			isError = true
-			continue
-		}
 
-		if res.StatusCode != 200 {
-			// error message:
-			// ref: https://github.com/sideshow/apns2/blob/master/response.go#L14-L65
-			LogPush(FailedPush, token, req, errors.New(res.Reason))
-			if doSync {
-				req.AddLog(getLogPushEntry(FailedPush, token, req, errors.New(res.Reason)))
+			if res.Sent() && !isError {
+				LogPush(SucceededPush, token, req, nil)
+				StatStorage.AddIosSuccess(1)
 			}
-			StatStorage.AddIosError(1)
-			newTokens = append(newTokens, token)
-			isError = true
-			continue
-		}
-
-		if res.Sent() {
-			LogPush(SucceededPush, token, req, nil)
-			StatStorage.AddIosSuccess(1)
-		}
+			// free push slot
+			<-MaxConcurrentIOSPushes
+			wg.Done()
+		}(token)
 	}
+	wg.Wait()
 
 	if isError && retryCount < maxRetry {
 		retryCount++

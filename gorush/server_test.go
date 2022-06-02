@@ -1,17 +1,21 @@
 package gorush
 
 import (
+	"context"
+	"crypto/tls"
+	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"runtime"
 	"testing"
 	"time"
 
+	"github.com/appleboy/gofight/v2"
 	"github.com/buger/jsonparser"
 	"github.com/gin-gonic/gin"
-	"github.com/jaraxasoftware/gorush/config"
+	"github.com/netscale-technologies/gorush/config"
 	"github.com/stretchr/testify/assert"
-	"gopkg.in/appleboy/gofight.v2"
 )
 
 var goVersion = runtime.Version()
@@ -19,6 +23,30 @@ var goVersion = runtime.Version()
 func initTest() {
 	PushConf, _ = config.LoadConf("")
 	PushConf.Core.Mode = "test"
+}
+
+// testRequest is testing url string if server is running
+func testRequest(t *testing.T, url string) {
+	tr := &http.Transport{
+		TLSClientConfig: &tls.Config{InsecureSkipVerify: true},
+	}
+	client := &http.Client{
+		Timeout:   time.Second * 10,
+		Transport: tr,
+	}
+
+	resp, err := client.Get(url)
+	defer func() {
+		if err := resp.Body.Close(); err != nil {
+			log.Println("close body err:", err)
+		}
+	}()
+
+	assert.NoError(t, err)
+
+	_, ioerr := ioutil.ReadAll(resp.Body)
+	assert.NoError(t, ioerr)
+	assert.Equal(t, "200 OK", resp.Status, "should get a 200")
 }
 
 func TestPrintGoRushVersion(t *testing.T) {
@@ -35,14 +63,13 @@ func TestRunNormalServer(t *testing.T) {
 	gin.SetMode(gin.TestMode)
 
 	go func() {
-		assert.NoError(t, RunHTTPServer())
+		assert.NoError(t, RunHTTPServer(context.Background()))
 	}()
 	// have to wait for the goroutine to start and run the server
 	// otherwise the main thread will complete
 	time.Sleep(5 * time.Millisecond)
 
-	assert.Error(t, RunHTTPServer())
-	gofight.TestRequest(t, "http://localhost:8088/api/stat/go")
+	testRequest(t, "http://localhost:8088/api/stat/go")
 }
 
 func TestRunTLSServer(t *testing.T) {
@@ -54,13 +81,13 @@ func TestRunTLSServer(t *testing.T) {
 	PushConf.Core.KeyPath = "../certificate/localhost.key"
 
 	go func() {
-		assert.NoError(t, RunHTTPServer())
+		assert.NoError(t, RunHTTPServer(context.Background()))
 	}()
 	// have to wait for the goroutine to start and run the server
 	// otherwise the main thread will complete
 	time.Sleep(5 * time.Millisecond)
 
-	gofight.TestRequest(t, "https://localhost:8087/api/stat/go")
+	testRequest(t, "https://localhost:8087/api/stat/go")
 }
 
 func TestRunTLSBase64Server(t *testing.T) {
@@ -76,20 +103,20 @@ func TestRunTLSBase64Server(t *testing.T) {
 	PushConf.Core.KeyBase64 = key
 
 	go func() {
-		assert.NoError(t, RunHTTPServer())
+		assert.NoError(t, RunHTTPServer(context.Background()))
 	}()
 	// have to wait for the goroutine to start and run the server
 	// otherwise the main thread will complete
 	time.Sleep(5 * time.Millisecond)
 
-	gofight.TestRequest(t, "https://localhost:8089/api/stat/go")
+	testRequest(t, "https://localhost:8089/api/stat/go")
 }
 
 func TestRunAutoTLSServer(t *testing.T) {
 	initTest()
 	PushConf.Core.AutoTLS.Enabled = true
 	go func() {
-		assert.NoError(t, RunHTTPServer())
+		assert.NoError(t, RunHTTPServer(context.Background()))
 	}()
 	// have to wait for the goroutine to start and run the server
 	// otherwise the main thread will complete
@@ -104,7 +131,7 @@ func TestLoadTLSCertError(t *testing.T) {
 	PushConf.Core.CertPath = "../config/config.yml"
 	PushConf.Core.KeyPath = "../config/config.yml"
 
-	assert.Error(t, RunHTTPServer())
+	assert.Error(t, RunHTTPServer(context.Background()))
 }
 
 func TestMissingTLSCertConfg(t *testing.T) {
@@ -117,8 +144,8 @@ func TestMissingTLSCertConfg(t *testing.T) {
 	PushConf.Core.CertBase64 = ""
 	PushConf.Core.KeyBase64 = ""
 
-	err := RunHTTPServer()
-	assert.Error(t, RunHTTPServer())
+	err := RunHTTPServer(context.Background())
+	assert.Error(t, RunHTTPServer(context.Background()))
 	assert.Equal(t, "missing https cert config", err.Error())
 }
 
@@ -132,7 +159,7 @@ func TestRootHandler(t *testing.T) {
 
 	r.GET("/").
 		Run(routerEngine(), func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
-			data := []byte(r.Body.String())
+			data := r.Body.Bytes()
 
 			value, _ := jsonparser.GetString(data, "text")
 
@@ -149,7 +176,7 @@ func TestAPIStatusGoHandler(t *testing.T) {
 
 	r.GET("/api/stat/go").
 		Run(routerEngine(), func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
-			data := []byte(r.Body.String())
+			data := r.Body.Bytes()
 
 			value, _ := jsonparser.GetString(data, "go_version")
 
@@ -168,7 +195,7 @@ func TestAPIStatusAppHandler(t *testing.T) {
 
 	r.GET("/api/stat/app").
 		Run(routerEngine(), func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
-			data := []byte(r.Body.String())
+			data := r.Body.Bytes()
 
 			value, _ := jsonparser.GetString(data, "version")
 
@@ -218,6 +245,35 @@ func TestEmptyNotifications(t *testing.T) {
 		})
 }
 
+func TestMutableContent(t *testing.T) {
+	initTest()
+
+	r := gofight.New()
+
+	// notifications is empty.
+	r.POST("/api/push").
+		SetJSON(gofight.D{
+			"notifications": []gofight.D{
+				{
+					"tokens":          []string{"aaaaa", "bbbbb"},
+					"platform":        PlatformAndroid,
+					"message":         "Welcome",
+					"mutable_content": 1,
+					"topic":           "test",
+					"badge":           1,
+					"alert": gofight.D{
+						"title": "title",
+						"body":  "body",
+					},
+				},
+			},
+		}).
+		Run(routerEngine(), func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
+			// json: cannot unmarshal number into Go struct field PushNotification.mutable_content of type bool
+			assert.Equal(t, http.StatusBadRequest, r.Code)
+		})
+}
+
 func TestOutOfRangeMaxNotifications(t *testing.T) {
 	initTest()
 
@@ -248,6 +304,7 @@ func TestOutOfRangeMaxNotifications(t *testing.T) {
 }
 
 func TestSuccessPushHandler(t *testing.T) {
+	t.Skip()
 	initTest()
 
 	PushConf.Android.Enabled = true
@@ -315,7 +372,7 @@ func TestVersionHandler(t *testing.T) {
 	r.GET("/version").
 		Run(routerEngine(), func(r gofight.HTTPResponse, rq gofight.HTTPRequest) {
 			assert.Equal(t, http.StatusOK, r.Code)
-			data := []byte(r.Body.String())
+			data := r.Body.Bytes()
 
 			value, _ := jsonparser.GetString(data, "version")
 
@@ -325,7 +382,7 @@ func TestVersionHandler(t *testing.T) {
 func TestDisabledHTTPServer(t *testing.T) {
 	initTest()
 	PushConf.Core.Enabled = false
-	err := RunHTTPServer()
+	err := RunHTTPServer(context.Background())
 	PushConf.Core.Enabled = true
 
 	assert.Nil(t, err)

@@ -9,7 +9,6 @@ const namespace = "gorush_"
 // Metrics implements the prometheus.Metrics interface and
 // exposes gorush metrics for prometheus
 type Metrics struct {
-	TotalPushCount      *prometheus.Desc
 	TotalIosSuccess     *prometheus.Desc
 	TotalIosError       *prometheus.Desc
 	TotalAndroidSuccess *prometheus.Desc
@@ -17,12 +16,14 @@ type Metrics struct {
 	TotalWebSuccess     *prometheus.Desc
 	TotalWebError       *prometheus.Desc
 	PushCount           *prometheus.Desc
+	WebSuccess          *prometheus.Desc
+	WebError            *prometheus.Desc
+	TotalPushCount      *prometheus.Desc
 	IosSuccess          *prometheus.Desc
 	IosError            *prometheus.Desc
 	AndroidSuccess      *prometheus.Desc
 	AndroidError        *prometheus.Desc
-	WebSuccess          *prometheus.Desc
-	WebError            *prometheus.Desc
+	QueueUsage          *prometheus.Desc
 }
 
 var lastTotalPushCount int64 = 0
@@ -106,6 +107,11 @@ func NewMetrics() Metrics {
 			"Number of web fail count",
 			nil, nil,
 		),
+		QueueUsage: prometheus.NewDesc(
+			namespace+"queue_usage",
+			"Length of internal queue",
+			nil, nil,
+		),
 	}
 }
 
@@ -125,6 +131,7 @@ func (c Metrics) Describe(ch chan<- *prometheus.Desc) {
 	ch <- c.AndroidError
 	ch <- c.WebSuccess
 	ch <- c.WebError
+	ch <- c.QueueUsage
 }
 
 // Collect returns the metrics with values
@@ -221,5 +228,10 @@ func (c Metrics) Collect(ch chan<- prometheus.Metric) {
 		c.WebError,
 		prometheus.GaugeValue,
 		float64(webError),
+	)
+	ch <- prometheus.MustNewConstMetric(
+		c.QueueUsage,
+		prometheus.GaugeValue,
+		float64(len(QueueNotification)),
 	)
 }

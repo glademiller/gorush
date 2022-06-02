@@ -1,0 +1,25 @@
+{{- if .Values.knativeDeploy }}
+{{- else }}
+{{- range $name, $val := .Values.brand }}
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: "{{ $.Chart.Name }}-{{ $name }}"
+  labels:
+    chart: "{{ $.Chart.Name }}-{{ $.Chart.Version | replace "+" "_" }}"
+{{- if $.Values.service.annotations }}
+  annotations:
+{{ toYaml $.Values.service.annotations | indent 4 }}
+{{- end }}
+spec:
+  type: {{ $.Values.service.type }}
+  ports:
+  - port: {{ $.Values.service.externalPort }}
+    targetPort: {{ $.Values.service.internalPort }}
+    protocol: TCP
+    name: http
+  selector:
+    name: "{{ $.Chart.Name }}-{{ $name }}"
+{{- end }}
+{{- end }}

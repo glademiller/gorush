@@ -1,16 +1,26 @@
 package gorush
 
 import (
+	"context"
 	"crypto/tls"
 	"fmt"
 	"net/http"
+	"os"
+	"regexp"
 
+	api "github.com/appleboy/gin-status-api"
+	"github.com/gin-contrib/logger"
 	"github.com/gin-gonic/gin"
 	"github.com/gin-gonic/gin/binding"
 	"github.com/prometheus/client_golang/prometheus"
 	"github.com/prometheus/client_golang/prometheus/promhttp"
+	"github.com/rs/zerolog"
+	"github.com/rs/zerolog/log"
 	"golang.org/x/crypto/acme/autocert"
-	api "gopkg.in/appleboy/gin-status-api.v1"
+)
+
+var (
+	rxURL = regexp.MustCompile(`^/healthz$`)
 )
 
 func init() {
@@ -49,7 +59,7 @@ func pushHandler(c *gin.Context) {
 
 	if err := c.ShouldBindWith(&form, binding.JSON); err != nil {
 		msg = "Missing notifications field."
-		LogAccess.Debug(msg)
+		LogAccess.Debug(err)
 		abortWithError(c, http.StatusBadRequest, msg)
 		return
 	}
@@ -68,7 +78,19 @@ func pushHandler(c *gin.Context) {
 		return
 	}
 
-	counts, logs := queueNotification(form)
+	ctx, cancel := context.WithCancel(context.Background())
+	notifier := c.Writer.CloseNotify()
+	go func(closer <-chan bool) {
+		<-closer
+		// Don't send notification after client timeout or disconnected.
+		// See the following issue for detail information.
+		// https://github.com/appleboy/gorush/issues/422
+		if PushConf.Core.Sync {
+			cancel()
+		}
+	}(notifier)
+
+	counts, logs := queueNotification(ctx, form)
 
 	c.JSON(http.StatusOK, gin.H{
 		"success": "ok",
@@ -100,19 +122,37 @@ func autoTLSServer() *http.Server {
 }
 
 func routerEngine() *gin.Engine {
+	zerolog.SetGlobalLevel(zerolog.InfoLevel)
+	if PushConf.Core.Mode == "debug" {
+		zerolog.SetGlobalLevel(zerolog.DebugLevel)
+	}
+
+	log.Logger = zerolog.New(os.Stdout).With().Timestamp().Logger()
+
+	if isTerm {
+		log.Logger = log.Output(
+			zerolog.ConsoleWriter{
+				Out:     os.Stdout,
+				NoColor: false,
+			},
+		)
+	}
+
 	// set server mode
 	gin.SetMode(PushConf.Core.Mode)
 
 	r := gin.New()
 
 	// Global middleware
-	r.Use(gin.Logger())
+	r.Use(logger.SetLogger(logger.Config{
+		UTC:            true,
+		SkipPathRegexp: rxURL,
+	}))
 	r.Use(gin.Recovery())
 	r.Use(VersionMiddleware())
-	r.Use(LogMiddleware())
 	r.Use(StatMiddleware())
 
-	r.GET(PushConf.API.StatGoURI, api.StatusHandler)
+	r.GET(PushConf.API.StatGoURI, api.GinHandler)
 	r.GET(PushConf.API.StatAppURI, appStatusHandler)
 	r.GET(PushConf.API.ConfigURI, configHandler)
 	r.GET(PushConf.API.SysStatURI, sysStatsHandler)

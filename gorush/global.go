@@ -1,9 +1,9 @@
 package gorush
 
 import (
-	"github.com/jaraxasoftware/gorush/config"
-	"github.com/jaraxasoftware/gorush/storage"
-	"github.com/jaraxasoftware/gorush/web"
+	"github.com/netscale-technologies/gorush/config"
+	"github.com/netscale-technologies/gorush/storage"
+	"github.com/netscale-technologies/gorush/web"
 
 	"github.com/appleboy/go-fcm"
 	"github.com/sideshow/apns2"
@@ -29,4 +29,6 @@ var (
 	LogError *logrus.Logger
 	// StatStorage implements the storage interface
 	StatStorage storage.Storage
+	// MaxConcurrentIOSPushes pool to limit the number of concurrent iOS pushes
+	MaxConcurrentIOSPushes chan struct{}
 )
