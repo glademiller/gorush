@@ -80,11 +80,11 @@ spec:
       - name: "{{ $.Values.certs.name }}-{{ $name }}-voip"
         secret:
           secretName: {{ $.Values.certs.name }}-{{ $val.ios.voip.key_file }}
-{{- end }}
-      imagePullSecrets:
-{{- range $pval := $.Values.jx.imagePullSecrets }}
-      - name: {{ quote $pval }}
-{{- end }}          
+{{- end }}        
       terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
 {{- end }}
+      imagePullSecrets:
+{{- range $pval := .Values.jx.imagePullSecrets }}
+      - name: {{ quote $pval }}
+{{- end }}  
 {{- end }}
