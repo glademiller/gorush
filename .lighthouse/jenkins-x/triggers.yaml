@@ -12,5 +12,4 @@ spec:
     context: "develop"
     source: "develop.yaml"
     branches:
-    - ^main$
-    - ^master$
+    - ^develop$
