@@ -39,6 +39,9 @@ spec:
               memory: 600Mi
         - name: build-make-build
           resources: {}
+          script: |
+            #/bin/sh
+            make build_linux_amd64          
         - name: check-registry
           resources: {}
         - name: build-container-build
