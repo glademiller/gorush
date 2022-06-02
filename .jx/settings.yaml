@@ -1,0 +1,6 @@
+apiVersion: core.jenkins-x.io/v4beta1
+kind: Settings
+spec:
+  destination:
+    chartRepository: https://github.com/jaraxasoftware/jx3-jaraxa.git
+    chartKind: pages
