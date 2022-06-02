@@ -62,8 +62,6 @@ brand:
       password: "Dresd3Ka-uBe!"
       key_file: "dkv-push.pem"
       max_concurrent_pushes: 100
-      voip:
-        key_file: "dkv-voip-push.pem"
     android:
       api_key: "AAAA4SKa3Qo:APA91bFTRMA4mOpaNcLRfXEDMBRtqUmfHty9R0zBH7wLVygwbxs3fsIMwIqyULRziLyIteF9m0ITbM4x9Cs7Jez18nVplffs65kbwDjwDYNgSl0hjAos79MBh9grIV7CP29XlkHlU5Eb"
     web:
@@ -73,7 +71,7 @@ brand:
       key_type: "p12"
       password: "talentomobile"
       key_file: "dkv-talento-qcplus-preprod-push.p12"
-      production: "true"
+      production: false
       max_concurrent_pushes: 100
     android:
       api_key: "AAAA5SkSuNY:APA91bHz6pSYn4c4VelZ5gcgM3QlVudOpUOdSNDgJvN57wnmlDrihsxoUnowmDYRMDSPoWMweOmfhK9pqoHOMEJDw27ziOqs4VJEj2HIGPynPXlRfKG23soZORkq59bWsh4bsbas5e1G"
