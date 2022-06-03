@@ -5,7 +5,7 @@ metadata:
 {{- if .Values.serviceAccount.name }}
   name: {{ .Values.serviceAccount.name }}
 {{- else }}
-  name: {{ template "fullname" . }}
+  name: {{ .Chart.Name }}
 {{- end }}
   {{- if .Values.serviceAccount.labels }}
   labels: {{- toYaml .Values.serviceAccount.labels | nindent 4 }}
