@@ -31,6 +31,13 @@ spec:
 {{ toYaml $.Values.podAnnotations | indent 8 }}
 {{- end }}
     spec:
+{{- if $.Values.serviceAccount.enabled }}
+{{- if $.Values.serviceAccount.name }}
+      serviceAccountName: {{ $.Values.serviceAccount.name }}
+{{- else }}
+      serviceAccountName: {{ $.Chart.Name }}
+{{- end }}
+{{- end }}    
       containers:
       - name: {{ $.Chart.Name }}
         image: "{{ $.Values.image.repository }}:{{ $.Values.image.tag }}"
@@ -82,9 +89,9 @@ spec:
           secretName: {{ $.Values.certs.name }}-{{ $val.ios.voip.key_file }}
 {{- end }}        
       terminationGracePeriodSeconds: {{ $.Values.terminationGracePeriodSeconds }}
-{{- end }}
       imagePullSecrets:
-{{- range $pval := .Values.jx.imagePullSecrets }}
+{{- range $pval := $.Values.jx.imagePullSecrets }}
       - name: {{ quote $pval }}
-{{- end }}  
+{{- end }}        
+{{- end }}
 {{- end }}
