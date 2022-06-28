@@ -5,7 +5,8 @@ LABEL org.label-schema.vcs-url="https://github.com/netscale-technologies/gorush.
 LABEL org.label-schema.name="Gorush"
 LABEL org.label-schema.vendor="Netscale Technologies"
 LABEL org.label-schema.schema-version="1.0"
-LABEL maintainer="Sergio Jurado <sergio.jurado@netscale.io>"
+LABEL org.opencontainers.image.source https://github.com/jaraxasoftware/gorush
+
 
 ADD release/linux/amd64/gorush /bin/
 
