@@ -1,9 +1,9 @@
 FROM plugins/base:linux-amd64
 
 LABEL org.label-schema.version=latest
-LABEL org.label-schema.vcs-url="https://github.com/netscale-technologies/gorush.git"
+LABEL org.label-schema.vcs-url="https://github.com/jaraxasoftware/gorush.git"
 LABEL org.label-schema.name="Gorush"
-LABEL org.label-schema.vendor="Netscale Technologies"
+LABEL org.label-schema.vendor="jaraxa Software"
 LABEL org.label-schema.schema-version="1.0"
 LABEL org.opencontainers.image.source https://github.com/jaraxasoftware/gorush
 
