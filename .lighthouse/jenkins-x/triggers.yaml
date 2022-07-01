@@ -13,3 +13,13 @@ spec:
     source: "develop.yaml"
     branches:
     - ^develop$
+  - name: staging
+    context: "staging"
+    source: "staging.yaml"
+    branches:
+    - ^staging$
+  - name: release
+    context: "release"
+    source: "release.yaml"
+    branches:
+    - ^release$
