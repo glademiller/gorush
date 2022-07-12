@@ -2,7 +2,7 @@ apiVersion: tekton.dev/v1beta1
 kind: PipelineRun
 metadata:
   creationTimestamp: null
-  name: release
+  name: staging
 spec:
   pipelineSpec:
     tasks:
@@ -11,6 +11,9 @@ spec:
       taskSpec:
         metadata: {}
         stepTemplate:
+          env: 
+          - name: ENVIRONMENT
+            value: dkv-prod         
           image: uses:jenkins-x/jx3-pipeline-catalog/tasks/go/release.yaml@versionStream
           name: ""
           resources:
@@ -24,16 +27,12 @@ spec:
         - name: next-version
           resources: {}
         - name: jx-variables
-          resources:
-            # override requests for the pod here
-            requests:
-              cpu: 400m
-              memory: 600Mi
+          resources: {}
         - name: build-make-build
           resources: {}
           script: |
             #/bin/sh
-            make build_linux_amd64
+            make build_linux_amd64          
         - name: check-registry
           resources: {}
         - name: build-container-build
@@ -44,6 +43,10 @@ spec:
           resources: {}
         - name: promote-jx-promote
           resources: {}
+          script: |
+            #!/usr/bin/env sh
+            source .jx/variables.sh
+            jx promote -b --env $ENVIRONMENT --timeout 16m          
   podTemplate: {}
   serviceAccountName: tekton-bot
   timeout: 12h0m0s
