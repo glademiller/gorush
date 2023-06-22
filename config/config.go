@@ -156,9 +156,10 @@ type SectionIos struct {
 
 // SectionWeb is sub section of config.
 type SectionWeb struct {
-	Enabled  bool   `yaml:"enabled"`
-	APIKey   string `yaml:"apikey"`
-	MaxRetry int    `yaml:"max_retry"`
+	Enabled         bool   `yaml:"enabled"`
+	VAPIDPublicKey  string `yaml:"valid_public_key"`
+	VAPIDPrivateKey string `yaml:"valid_private_key"`
+	MaxRetry        int    `yaml:"max_retry"`
 }
 
 // SectionLog is sub section of config.
@@ -294,7 +295,8 @@ func LoadConf(confPath string) (ConfYaml, error) {
 
 	// Web
 	conf.Web.Enabled = viper.GetBool("web.enabled")
-	conf.Web.APIKey = viper.GetString("web.apikey")
+	conf.Web.VAPIDPrivateKey = viper.GetString("web.vapid_private_key")
+	conf.Web.VAPIDPublicKey = viper.GetString("web.vapid_public_key")
 	conf.Web.MaxRetry = viper.GetInt("web.max_retry")
 
 	// log
