@@ -188,7 +188,8 @@ type SectionIos struct {
 
 // SectionWeb is sub section of config.
 type SectionWeb struct {
-	APIKey              string `yaml:"apikey"`
+	VAPIDPublicKey      string `yaml:"valid_public_key"`
+	VAPIDPrivateKey     string `yaml:"valid_private_key"`
 	Enabled             bool   `yaml:"enabled"`
 	KeyPath             string `yaml:"key_path"`
 	KeyBase64           string `yaml:"key_base64"`
@@ -359,7 +360,8 @@ func LoadConf(confPath string) (ConfYaml, error) {
 
 	// Web
 	conf.Web.Enabled = viper.GetBool("web.enabled")
-	conf.Web.APIKey = viper.GetString("web.apikey")
+	conf.Web.VAPIDPrivateKey = viper.GetString("web.vapid_private_key")
+	conf.Web.VAPIDPublicKey = viper.GetString("web.vapid_public_key")
 	conf.Web.MaxRetry = viper.GetInt("web.max_retry")
 
 	// log

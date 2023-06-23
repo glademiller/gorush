@@ -31,7 +31,8 @@ func TestMissingWebAPIKey(t *testing.T) {
 	PushConf, _ = config.LoadConf("")
 
 	PushConf.Web.Enabled = true
-	PushConf.Web.APIKey = ""
+	PushConf.Web.VAPIDPrivateKey = ""
+	PushConf.Web.VAPIDPublicKey = ""
 
 	err := CheckPushConf()
 
@@ -43,7 +44,8 @@ func TestPushToWebWrongSubscription(t *testing.T) {
 	PushConf, _ = config.LoadConf("")
 
 	PushConf.Web.Enabled = true
-	PushConf.Web.APIKey = os.Getenv("ANDROID_API_KEY")
+	PushConf.Web.VAPIDPrivateKey = os.Getenv("ANDROID_API_KEY")
+	PushConf.Web.VAPIDPublicKey = os.Getenv("ANDROID_API_KEY")
 
 	req := PushNotification{
 		Subscriptions: []Subscription{{"aaaaaa", "bbbbbb", "cccccc"}},

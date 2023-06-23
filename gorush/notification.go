@@ -237,8 +237,11 @@ func CheckPushConf() error {
 	}
 
 	if PushConf.Web.Enabled {
-		if PushConf.Web.APIKey == "" {
-			return errors.New("Missing GCM API Key for Chrome")
+		if PushConf.Web.VAPIDPrivateKey == "" {
+			return errors.New("Missing VAPID Private Key for Web")
+		}
+		if PushConf.Web.VAPIDPublicKey == "" {
+			return errors.New("Missing VAPID Private Key for Web")
 		}
 	}
 

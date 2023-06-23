@@ -1,18 +1,16 @@
 package web
 
 import (
-	"encoding/base64"
 	"encoding/json"
 	"errors"
 	"fmt"
-	"github.com/martijnc/gowebpush/ece"
-	"github.com/martijnc/gowebpush/webpush"
 	"io/ioutil"
 	"net/http"
 	"regexp"
 	"strconv"
-	"strings"
 	"time"
+
+	webpush "github.com/SherClockHolmes/webpush-go"
 )
 
 var (
@@ -21,7 +19,9 @@ var (
 
 // Client type
 type Client struct {
-	HTTPClient *http.Client
+	HTTPClient      *http.Client
+	vapidPublicKey  string
+	vapidPrivateKey string
 }
 
 // Response type
@@ -30,7 +30,7 @@ type Response struct {
 	Body       string
 }
 
-// Subscription type
+// // Subscription type
 type Subscription struct {
 	Endpoint string `json:"endpoint,omitempty"`
 	Key      string `json:"key,omitempty"`
@@ -53,92 +53,63 @@ type Browser struct {
 
 // Browsers available
 var Browsers = [...]Browser{
-	{"Chrome", *regexp.MustCompile("https://(android|fcm).googleapis.com/(gcm|fcm)/send/"), *regexp.MustCompile("<TITLE>(.*)</TITLE>")},
+	{"Chrome", *regexp.MustCompile("https://android.googleapis.com/gcm/send/"), *regexp.MustCompile("<TITLE>(.*)</TITLE>")},
 	{"Firefox", *regexp.MustCompile("https://updates.push.services.mozilla.com/wpush"), *regexp.MustCompile("\\\"errno\\\":\\s(\\d+)")},
 }
 
 // NewClient returns a new web.Client
-func NewClient() *Client {
+func NewClient(vapidPrivateKey string, vapidPublicKey string) *Client {
+	// vapidPrivateKey, vapidPublicKey, err := webpush.GenerateVAPIDKeys()
+	// if err != nil {
+	// 	panic(err)
+	// }
+
 	return &Client{
 		HTTPClient: &http.Client{
 			Timeout: httpClientTimeout,
 		},
+		vapidPrivateKey: vapidPrivateKey,
+		vapidPublicKey:  vapidPublicKey,
 	}
 }
 
 // Push sends a notification using Webpush
-func (c *Client) Push(n *Notification, apiKey string) (*Response, error) {
+func (c *Client) Push(n *Notification) (*Response, error) {
 	jsonBuffer, _ := json.Marshal(n.Payload)
-	var timeToLive uint
+	var timeToLive int
 	if n.TimeToLive != nil {
-		timeToLive = *n.TimeToLive
+		timeToLive = int(*n.TimeToLive)
 	} else {
 		timeToLive = 2419200
 	}
 
-	var authKey, p256dhKey []byte
-	var errAuth, errKey error
-	authKey, errAuth = base64.RawURLEncoding.DecodeString(n.Subscription.Auth)
-	if errAuth != nil {
-		authKey, errAuth = base64.URLEncoding.DecodeString(n.Subscription.Auth)
-		if errAuth != nil {
-			return nil, errAuth
-		}
+	subscription := webpush.Subscription{
+		Endpoint: n.Subscription.Endpoint,
+		Keys: webpush.Keys{
+			P256dh: n.Subscription.Key,
+			Auth:   n.Subscription.Auth,
+		},
 	}
 
-	p256dhKey, errKey = base64.RawURLEncoding.DecodeString(n.Subscription.Key)
-	if errKey != nil {
-		p256dhKey, errKey = base64.URLEncoding.DecodeString(n.Subscription.Key)
-		if errKey != nil {
-			return nil, errKey
-		}
-	}
-	var sp, rp webpush.KeyPair
-	sp.GenerateKeys()
-	err2 := rp.SetPublicKey(p256dhKey)
-	if err2 != nil {
-		return nil, err2
-	}
-	// Calculate the shared secret from the key-pairs (IKM).
-	secret := webpush.CalculateSecret(&sp, &rp)
-
-	var keys ece.EncryptionKeys
-	encryptionContext := ece.BuildDHContext(rp.PublicKey, sp.PublicKey)
-	keys.SetPreSharedAuthSecret(authKey)
-
-	// Derive the encryption key and nonce from the input keying material.
-	keys.CreateEncryptionKeys(secret, encryptionContext)
-
-	// Encrypt the plaintext
-	ciphertext, _ := ece.Encrypt(jsonBuffer, &keys, 25)
-
-	// Create the headers
-	var eh ece.EncryptionHeader
-	eh.SetSalt(keys.GetSalt())
-	eh.SetRecordSize(len(ciphertext))
-
-	var ckh ece.CryptoKeyHeader
-	ckh.SetDHKey(sp.PublicKey)
-
-	var pushResponse Response
-
-	// Create the ECE request.
-	r := ece.CreateRequest(*c.HTTPClient, n.Subscription.Endpoint, ciphertext, &ckh, &eh, int(timeToLive))
-	if strings.Contains(n.Subscription.Endpoint, "googleapis.com") {
-		r.Header.Add("Authorization", "key="+apiKey)
-	}
-	response, err := c.HTTPClient.Do(r)
+	resp, err := webpush.SendNotification(jsonBuffer, &subscription, &webpush.Options{
+		Subscriber:      "example@example.com", // Do not include "mailto:"
+		VAPIDPublicKey:  c.vapidPublicKey,
+		VAPIDPrivateKey: c.vapidPrivateKey,
+		TTL:             timeToLive,
+	})
 	if err != nil {
 		return nil, err
 	}
-	defer response.Body.Close()
-	body, err := ioutil.ReadAll(response.Body)
+	defer resp.Body.Close()
 
-	fmt.Println("Status Code: " + strconv.Itoa(response.StatusCode))
-	pushResponse.StatusCode = response.StatusCode
+	body, err := ioutil.ReadAll(resp.Body)
+
+	var pushResponse Response
+	fmt.Println("Status Code: " + strconv.Itoa(resp.StatusCode))
+	pushResponse.StatusCode = resp.StatusCode
 	pushResponse.Body = string(body)
-	if response.StatusCode != 201 {
-		return &pushResponse, errors.New("Push endpoint returned incorrect status code: " + strconv.Itoa(response.StatusCode))
+	if resp.StatusCode != 201 {
+		return &pushResponse, errors.New("Push endpoint returned incorrect status code: " + strconv.Itoa(resp.StatusCode))
 	}
 
 	return &pushResponse, nil

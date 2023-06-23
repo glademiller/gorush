@@ -12,7 +12,7 @@ import (
 func InitWebClient() error {
 	if PushConf.Web.Enabled {
 		//var err error
-		WebClient = web.NewClient()
+		WebClient = web.NewClient(PushConf.Web.VAPIDPrivateKey, PushConf.Web.VAPIDPublicKey)
 	}
 
 	return nil
@@ -50,11 +50,6 @@ func PushToWeb(req PushNotification) bool {
 		return false
 	}
 
-	var apiKey = PushConf.Web.APIKey
-	if req.APIKey != "" {
-		apiKey = req.APIKey
-	}
-
 Retry:
 	var isError = false
 
@@ -63,7 +58,7 @@ Retry:
 
 	for _, subscription := range req.Subscriptions {
 		notification := getWebNotification(req, &subscription)
-		response, err := WebClient.Push(notification, apiKey)
+		response, err := WebClient.Push(notification)
 
 		if err != nil {
 			isError = true
@@ -74,20 +69,7 @@ Retry:
 					req.AddLog(getLogPushEntry(FailedPush, subscription.Endpoint, req, err))
 				} else {
 					var errorText = response.Body
-					/*var browser web.Browser
-					var found = false
-					for _, current := range web.Browsers {
-						if current.ReDetect.FindString(subscription.Endpoint) != "" {
-							browser = current
-							found = true
-						}
-					}
-					if found {
-						match := browser.ReError.FindStringSubmatch(errorText)
-						if match != nil && len(match) > 1 && match[1] != "" {
-							errorText = match[1]
-						}
-					}*/
+
 					errorText = strconv.Itoa(response.StatusCode)
 					var errorObj = errors.New(errorText)
 					req.AddLog(getLogPushEntry(FailedPush, subscription.Endpoint, req, errorObj))
