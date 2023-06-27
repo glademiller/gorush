@@ -96,6 +96,7 @@ func (c *Client) Push(n *Notification) (*Response, error) {
 		VAPIDPublicKey:  c.vapidPublicKey,
 		VAPIDPrivateKey: c.vapidPrivateKey,
 		TTL:             timeToLive,
+		HTTPClient:      c.HTTPClient,
 	})
 	if err != nil {
 		return nil, err
